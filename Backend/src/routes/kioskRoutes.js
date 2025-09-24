@@ -14,19 +14,23 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-// Get all active kiosks
+// --- MODIFIED ROUTE ---
+// Get all kiosks that are ACTIVE and NOT DELETED.
+// This is more efficient and ensures the frontend gets exactly the data it needs.
 router.get('/', async (req, res, next) => {
   try {
-    const kiosks = await Kiosk.find({ isDeleted: false });
+    const kiosks = await Kiosk.find({ isActive: true, isDeleted: false });
+    // This log will confirm if the backend is being hit and finding data.
+    console.log(`[SUCCESS] /api/kiosks endpoint hit, found ${kiosks.length} active kiosks.`);
     res.json(kiosks);
   } catch (err) {
+    // This log will show any database-related errors.
+    console.error('[ERROR] Failed to fetch kiosks from database:', err);
     next(err);
   }
 });
 
-// ===================================================================
-//  NEW: The PUT route for updating a kiosk by its ID
-// ===================================================================
+// Update a kiosk by ID
 router.put('/:id', async (req, res, next) => {
     try {
         const updatedKiosk = await Kiosk.findByIdAndUpdate(
@@ -42,7 +46,6 @@ router.put('/:id', async (req, res, next) => {
         next(err);
     }
 });
-
 
 // Soft delete a kiosk
 router.delete('/:id', async (req, res, next) => {

@@ -6,10 +6,6 @@ import Kiosk from '../models/Kiosk.js';
 import { softDeleteById } from '../utils/helpers.js';
 
 const router = Router();
-
-// ===================================================================
-//  NEW: The /stats endpoint for the admin dashboard
-// ===================================================================
 router.get('/stats', async (req, res, next) => {
     try {
         // 1. Get simple counts

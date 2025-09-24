@@ -1,73 +1,104 @@
 import { Router } from 'express';
 import LegalIssue from '../models/LegalIssue.js';
-// import Notification from '../models/Notification.js'; // <-- REMOVED: This was causing the error
-import { softDeleteById } from '../utils/helpers.js';
+import { ApiError } from '../utils/ApiError.js';
+import { ApiResponse } from '../utils/ApiResponse.js';
 
 const router = Router();
 
-// Create a new legal issue for the logged-in user
+// === CREATE: Create a new legal issue ===
 router.post('/', async (req, res, next) => {
   try {
-    const issue = await LegalIssue.create({
-      ...req.body,
+    const { issueType, description, kioskId } = req.body;
+    if (!issueType || !description) {
+      throw new ApiError(400, "Issue Type and Description are required.");
+    }
+
+    const newIssue = await LegalIssue.create({
       userId: req.user._id,
-      isDeleted: false
+      issueType,
+      description,
+      kiosk: kioskId,
+      status: 'Pending',
+      // --- NEW: Add the first event to the timeline ---
+      history: [{
+        event: 'Issue Created',
+        details: `Issue reported by user.`,
+        actor: 'User'
+      }]
     });
-    res.status(201).json(issue);
-  } catch (err) {
-    next(err);
+
+    return res.status(201).json(
+      new ApiResponse(201, newIssue, "Legal issue created successfully.")
+    );
+  } catch (error) {
+    return next(error);
   }
 });
 
-// This route is for admins to get ALL issues.
+// === READ: Get all issues (for admin) or user-specific issues ===
 router.get('/', async (req, res, next) => {
   try {
-    const issues = await LegalIssue.find({ isDeleted: false });
-    res.json(issues);
-  } catch (err) {
-    next(err);
+    const query = { isDeleted: false };
+    if (req.user.role !== 'admin') {
+      query.userId = req.user._id;
+    }
+    const issues = await LegalIssue.find(query)
+      .populate('userId', 'fullName email')
+      .populate('kiosk', 'location operatorName')
+      .sort({ createdAt: -1 });
+    return res.status(200).json(new ApiResponse(200, issues, "Issues retrieved successfully."));
+  } catch (error) {
+    return next(error);
   }
 });
 
-// PUT route for updating an issue
-router.put('/:id', async (req, res, next) => {
-    try {
-        const issueId = req.params.id;
-        
-        const updatedIssue = await LegalIssue.findByIdAndUpdate(
-            issueId,
-            req.body,
-            { new: true }
-        );
 
-        if (!updatedIssue) {
-            return res.status(404).json({ message: 'Issue not found' });
+// === READ: Get a single issue by ID ===
+router.get('/:id', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const query = { _id: id, isDeleted: false };
+        if (req.user.role !== 'admin') {
+            query.userId = req.user._id;
         }
 
-        // ===================================================================
-        //  REMOVED: All notification-related logic has been commented out
-        //  or removed since the feature was skipped.
-        // ===================================================================
-        // if (status) {
-        //     const message = `The status of your issue "${updatedIssue.issueType}" has been updated to ${status}.`;
-        //     const notification = await Notification.create({...});
-        //     // Socket logic would go here
-        // }
-        
-        res.json(updatedIssue);
-    } catch (err) {
-        next(err);
+        // --- NEW: Populate all necessary fields for the detail page ---
+        const issue = await LegalIssue.findOne(query)
+            .populate('userId', 'fullName email phoneNumber')
+            .populate('kiosk')
+            .populate('assignedParalegal')
+            .populate('documents');
+
+        if (!issue) {
+            throw new ApiError(404, "Legal issue not found or access denied.");
+        }
+
+        return res.status(200).json(new ApiResponse(200, issue, "Issue retrieved successfully."));
+    } catch(error) {
+        return next(error);
     }
 });
 
-// Soft delete a legal issue
+
+// === DELETE: Soft delete an issue ===
 router.delete('/:id', async (req, res, next) => {
-  try {
-    const issue = await softDeleteById(LegalIssue, req.params.id);
-    res.json({ message: 'Legal Issue soft-deleted successfully', issue });
-  } catch (err) {
-    next(err);
-  }
+    try {
+        const { id } = req.params;
+        const query = { _id: id, isDeleted: false };
+        if (req.user.role !== 'admin') {
+            query.userId = req.user._id;
+        }
+
+        const issue = await LegalIssue.findOneAndUpdate(query, { isDeleted: true, deletedAt: new Date() }, { new: true });
+
+        if(!issue) {
+            throw new ApiError(404, "Issue not found or access denied.");
+        }
+
+        return res.status(200).json(new ApiResponse(200, { id: issue._id }, "Issue deleted successfully."));
+    } catch(error) {
+        return next(error);
+    }
 });
 
 export default router;
